@@ -1,0 +1,5 @@
+node_modules/
+dist/
+aria
+*.bun
+.DS_Store
