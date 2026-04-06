@@ -28,12 +28,33 @@ const WEBPLAYER_TOKEN_URL = "https://music.apple.com";
  */
 
 // The Apple Music web player embeds a JWT developer token in its JS bundle.
-// We extract it once and cache it.
+// We extract it once and cache it with a TTL.
 let cachedDevToken: string | null = null;
+let cachedDevTokenExpiry = 0;
 let cachedStorefront: string | null = null;
 
+const DEV_TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const JWT_PATTERN = /eyJhbGciOi[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/;
+
+function isValidJwt(token: string): boolean {
+  const parts = token.split(".");
+  if (parts.length !== 3) return false;
+  try {
+    const header = JSON.parse(atob(parts[0].replace(/-/g, "+").replace(/_/g, "/")));
+    return typeof header.alg === "string" && typeof header.typ === "string";
+  } catch {
+    return false;
+  }
+}
+
+function extractJwt(text: string): string | null {
+  const match = text.match(JWT_PATTERN);
+  if (!match) return null;
+  return isValidJwt(match[0]) ? match[0] : null;
+}
+
 async function getWebPlayerDevToken(): Promise<string> {
-  if (cachedDevToken) return cachedDevToken;
+  if (cachedDevToken && Date.now() < cachedDevTokenExpiry) return cachedDevToken;
 
   // Fetch the Apple Music web player and extract the embedded token
   const res = await fetch(WEBPLAYER_TOKEN_URL);
@@ -41,10 +62,10 @@ async function getWebPlayerDevToken(): Promise<string> {
 
   // The token is embedded in the page's JS assets. Look for the JWT pattern.
   // Apple embeds it as a constant in their webpack bundles.
-  // Pattern: eyJhbGciOi... (JWT format, base64url)
-  const jwtMatch = html.match(/eyJhbGciOi[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
-  if (jwtMatch) {
-    cachedDevToken = jwtMatch[0];
+  const token = extractJwt(html);
+  if (token) {
+    cachedDevToken = token;
+    cachedDevTokenExpiry = Date.now() + DEV_TOKEN_TTL_MS;
     return cachedDevToken;
   }
 
@@ -54,9 +75,10 @@ async function getWebPlayerDevToken(): Promise<string> {
     try {
       const jsRes = await fetch(url);
       const js = await jsRes.text();
-      const match = js.match(/eyJhbGciOi[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
-      if (match) {
-        cachedDevToken = match[0];
+      const jsToken = extractJwt(js);
+      if (jsToken) {
+        cachedDevToken = jsToken;
+        cachedDevTokenExpiry = Date.now() + DEV_TOKEN_TTL_MS;
         return cachedDevToken;
       }
     } catch {
@@ -132,89 +154,101 @@ interface AMResponse {
   data?: AMResource[];
 }
 
-function parseApiTrack(r: AMResource): Track {
-  const a = r.attributes || {};
-  const playParams = (a.playParams as Record<string, unknown> | undefined) || {};
-  const catalogId = (playParams.catalogId as string | undefined)
-    || (playParams.id as string | undefined)
-    || (r.type === "songs" ? r.id : undefined);
+// ── Safe field extraction from untyped API responses ──
+
+function str(val: unknown, fallback = ""): string {
+  return typeof val === "string" ? val : fallback;
+}
+
+function num(val: unknown, fallback = 0): number {
+  return typeof val === "number" && Number.isFinite(val) ? val : fallback;
+}
+
+function strArray(val: unknown): string[] {
+  return Array.isArray(val) ? val.filter((v): v is string => typeof v === "string") : [];
+}
+
+function recordOrEmpty(val: unknown): Record<string, unknown> {
+  return val && typeof val === "object" && !Array.isArray(val)
+    ? val as Record<string, unknown>
+    : {};
+}
+
+function extractIds(r: AMResource): { catalogId?: string; libraryId?: string } {
+  const a = recordOrEmpty(r.attributes);
+  const playParams = recordOrEmpty(a.playParams);
+  const catalogId = str(playParams.catalogId)
+    || str(playParams.id)
+    || str(playParams.globalId)
+    || (r.type === "songs" || r.type === "albums" || r.type === "artists" || r.type === "playlists" ? r.id : undefined);
   const libraryId = r.type.startsWith("library-") ? r.id : undefined;
+  return { catalogId: catalogId || undefined, libraryId };
+}
+
+function parseYear(releaseDate: unknown): number | undefined {
+  if (typeof releaseDate !== "string" || releaseDate.length < 4) return undefined;
+  const year = parseInt(releaseDate.slice(0, 4), 10);
+  return Number.isFinite(year) && year > 0 ? year : undefined;
+}
+
+function parseApiTrack(r: AMResource): Track {
+  const a = recordOrEmpty(r.attributes);
+  const { catalogId, libraryId } = extractIds(r);
   return {
-    ...buildIdentity({
-      source: "api",
-      libraryId,
-      catalogId,
-    }),
-    name: (a.name as string) || "Unknown",
-    artist: (a.artistName as string) || "Unknown",
-    album: (a.albumName as string) || "",
-    duration: Math.round(((a.durationInMillis as number) || 0) / 1000),
-    trackNumber: (a.trackNumber as number) || undefined,
-    genre: ((a.genreNames as string[]) || [])[0] || undefined,
-    year: a.releaseDate ? parseInt(String(a.releaseDate).slice(0, 4), 10) : undefined,
-    artworkUrl: formatArtwork(a.artwork as { url?: string } | undefined),
+    ...buildIdentity({ source: "api", libraryId, catalogId }),
+    name: str(a.name, "Unknown"),
+    artist: str(a.artistName, "Unknown"),
+    album: str(a.albumName),
+    duration: Math.round(num(a.durationInMillis) / 1000),
+    trackNumber: num(a.trackNumber) || undefined,
+    genre: strArray(a.genreNames)[0] || undefined,
+    year: parseYear(a.releaseDate),
+    artworkUrl: formatArtwork(a.artwork),
   };
 }
 
 function parseApiAlbum(r: AMResource): Album {
-  const a = r.attributes || {};
-  const playParams = (a.playParams as Record<string, unknown> | undefined) || {};
-  const catalogId = (playParams.catalogId as string | undefined)
-    || (playParams.id as string | undefined)
-    || (r.type === "albums" ? r.id : undefined);
-  const libraryId = r.type.startsWith("library-") ? r.id : undefined;
+  const a = recordOrEmpty(r.attributes);
+  const { catalogId, libraryId } = extractIds(r);
   return {
-    ...buildIdentity({
-      source: "api",
-      libraryId,
-      catalogId,
-    }),
-    name: (a.name as string) || "Unknown",
-    artist: (a.artistName as string) || "Unknown",
-    trackCount: (a.trackCount as number) || 0,
-    year: a.releaseDate ? parseInt(String(a.releaseDate).slice(0, 4), 10) : undefined,
-    genre: ((a.genreNames as string[]) || [])[0] || undefined,
-    artworkUrl: formatArtwork(a.artwork as { url?: string } | undefined),
+    ...buildIdentity({ source: "api", libraryId, catalogId }),
+    name: str(a.name, "Unknown"),
+    artist: str(a.artistName, "Unknown"),
+    trackCount: num(a.trackCount),
+    year: parseYear(a.releaseDate),
+    genre: strArray(a.genreNames)[0] || undefined,
+    artworkUrl: formatArtwork(a.artwork),
   };
 }
 
 function parseApiArtist(r: AMResource): Artist {
-  const a = r.attributes || {};
-  const catalogId = r.type === "artists" ? r.id : undefined;
+  const a = recordOrEmpty(r.attributes);
+  const { catalogId, libraryId } = extractIds(r);
   return {
-    ...buildIdentity({
-      source: "api",
-      libraryId: r.type.startsWith("library-") ? r.id : undefined,
-      catalogId,
-    }),
-    name: (a.name as string) || "Unknown",
-    genre: ((a.genreNames as string[]) || [])[0] || undefined,
-    artworkUrl: formatArtwork(a.artwork as { url?: string } | undefined),
+    ...buildIdentity({ source: "api", libraryId, catalogId }),
+    name: str(a.name, "Unknown"),
+    genre: strArray(a.genreNames)[0] || undefined,
+    artworkUrl: formatArtwork(a.artwork),
   };
 }
 
 function parseApiPlaylist(r: AMResource): Playlist {
-  const a = r.attributes || {};
-  const playParams = (a.playParams as Record<string, unknown> | undefined) || {};
-  const catalogId = (playParams.catalogId as string | undefined)
-    || (playParams.globalId as string | undefined)
-    || (r.type === "playlists" ? r.id : undefined);
-  const libraryId = r.type.startsWith("library-") ? r.id : undefined;
+  const a = recordOrEmpty(r.attributes);
+  const { catalogId, libraryId } = extractIds(r);
+  const desc = recordOrEmpty(a.description);
   return {
-    ...buildIdentity({
-      source: "api",
-      libraryId,
-      catalogId,
-    }),
-    name: (a.name as string) || "Unknown",
-    description: (a.description as { short?: string })?.short || undefined,
-    trackCount: 0, // Not always in the response
+    ...buildIdentity({ source: "api", libraryId, catalogId }),
+    name: str(a.name, "Unknown"),
+    description: str(desc.short) || undefined,
+    trackCount: 0,
   };
 }
 
-function formatArtwork(artwork?: { url?: string }): string | undefined {
-  if (!artwork?.url) return undefined;
-  return artwork.url.replace("{w}", "300").replace("{h}", "300");
+function formatArtwork(artwork: unknown): string | undefined {
+  const obj = recordOrEmpty(artwork);
+  const url = str(obj.url);
+  if (!url) return undefined;
+  return url.replace("{w}", "300").replace("{h}", "300");
 }
 
 export class ApiEngine implements MusicEngine {
@@ -373,9 +407,10 @@ export class ApiEngine implements MusicEngine {
     const apiPlaylistId = playlistRef?.kind === "library" ? playlistRef.value : playlistId;
     const data = await apiRequest<AMResponse>(`/me/library/playlists/${apiPlaylistId}`, {});
     const playlist = data.data?.[0];
-    const a = playlist?.attributes || {};
+    const a = recordOrEmpty(playlist?.attributes);
     const tracks = await this.getPlaylistTracks(apiPlaylistId);
-    const playParams = (a.playParams as Record<string, unknown> | undefined) || {};
+    const playParams = recordOrEmpty(a.playParams);
+    const desc = recordOrEmpty(a.description);
 
     const artistCounts = new Map<string, number>();
     const genreCounts = new Map<string, number>();
@@ -388,13 +423,13 @@ export class ApiEngine implements MusicEngine {
       ...buildIdentity({
         source: "api",
         libraryId: apiPlaylistId,
-        catalogId: (playParams.catalogId as string | undefined) || (playParams.globalId as string | undefined),
+        catalogId: str(playParams.catalogId) || str(playParams.globalId) || undefined,
       }),
-      name: (a.name as string) || "Unknown",
-      description: (a.description as { short?: string })?.short || undefined,
+      name: str(a.name, "Unknown"),
+      description: str(desc.short) || undefined,
       trackCount: tracks.length,
       totalDuration: tracks.reduce((sum, t) => sum + t.duration, 0),
-      artworkUrl: formatArtwork(a.artwork as { url?: string } | undefined),
+      artworkUrl: formatArtwork(a.artwork),
       tracks,
       topArtists: Array.from(artistCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 15).map(([name, count]) => ({ name, count })),
       genres: Array.from(genreCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([name, count]) => ({ name, count })),

@@ -68,10 +68,12 @@ export interface SearchResults {
   playlists: Playlist[];
 }
 
+export type DeviceKind = "airplay" | "bluetooth" | "computer" | "unknown";
+
 export interface Device {
   id: string;
   name: string;
-  kind: string;
+  kind: DeviceKind;
   active: boolean;
 }
 

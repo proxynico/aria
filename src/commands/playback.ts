@@ -2,7 +2,7 @@ import type { Command } from "commander";
 import type { MusicEngine } from "../lib/types";
 import { ValidationError } from "../lib/errors";
 import { parseInteger } from "../lib/input";
-import { getOutputMode, outputStatus, outputMessage, outputJson } from "../lib/output";
+import { getOutputMode, outputStatus, outputMessage, outputJson, outputKeyValue } from "../lib/output";
 
 export function registerPlaybackCommands(program: Command, getEngine: () => MusicEngine) {
   program
@@ -114,7 +114,7 @@ export function registerPlaybackCommands(program: Command, getEngine: () => Musi
         } else if (mode === "plain") {
           console.log(vol);
         } else {
-          console.log(`Volume: ${vol}`);
+          outputKeyValue("Volume", String(vol));
         }
       } else {
         const vol = parseInteger("volume", level, { min: 0, max: 100 });
@@ -181,7 +181,7 @@ export function registerPlaybackCommands(program: Command, getEngine: () => Musi
       } else if (mode === "plain") {
         console.log(repeatMode);
       } else {
-        console.log(`Repeat: ${repeatMode}`);
+        outputKeyValue("Repeat", repeatMode);
       }
     });
 }

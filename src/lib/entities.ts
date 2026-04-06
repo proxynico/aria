@@ -1,4 +1,5 @@
 import type { EntityIdentity, EntitySource } from "./types";
+import { ValidationError } from "./errors";
 
 interface IdentityInput {
   id?: string;
@@ -52,4 +53,21 @@ export function parseEntityRef(id: string): EntityRef | null {
     kind: match[2] as EntityRefKind,
     value: match[3],
   };
+}
+
+/**
+ * Validate that a raw ID is safe for embedding in JXA scripts.
+ * Music.app persistent IDs are hex strings. API IDs are alphanumeric with dots/hyphens.
+ * Rejects anything with characters that could be used for injection.
+ */
+const SAFE_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
+
+export function validateRawId(id: string, label: string): string {
+  if (!id || !SAFE_ID_PATTERN.test(id)) {
+    throw new ValidationError(
+      `${label} "${id}" contains invalid characters.`,
+      "IDs must be alphanumeric (with dots, hyphens, or underscores). Get valid IDs with: aria ... --json",
+    );
+  }
+  return id;
 }

@@ -231,6 +231,10 @@ export function outputPlaylistDetails(details: PlaylistDetails, mode: OutputMode
   }
 }
 
+export function outputKeyValue(key: string, value: string) {
+  console.log(`${c(DIM, key + ":")} ${value}`);
+}
+
 export function outputMessage(msg: string) {
   console.log(c(GREEN, msg));
 }

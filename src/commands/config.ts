@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import { loadConfig, setDefaultEngine, setStorefront } from "../lib/config";
 import { ValidationError } from "../lib/errors";
-import { getOutputMode, outputJson, outputMessage } from "../lib/output";
+import { getOutputMode, outputJson, outputKeyValue, outputMessage } from "../lib/output";
 import type { AriaConfig } from "../lib/types";
 
 const ENGINES: AriaConfig["defaultEngine"][] = ["native", "api", "auto"];
@@ -21,8 +21,8 @@ export function registerConfigCommands(program: Command) {
         console.log(`default_engine\t${current.defaultEngine}`);
         console.log(`storefront\t${current.storefront ?? "auto"}`);
       } else {
-        console.log(`Default engine: ${current.defaultEngine}`);
-        console.log(`Storefront: ${current.storefront ?? "auto"}`);
+        outputKeyValue("Default engine", current.defaultEngine);
+        outputKeyValue("Storefront", current.storefront ?? "auto");
       }
     });
 

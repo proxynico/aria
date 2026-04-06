@@ -2,7 +2,7 @@ import type { Command } from "commander";
 import { importCookiesFromBrowser, SUPPORTED_BROWSERS } from "../lib/cookies";
 import { clearMediaUserToken, getMediaUserToken, loadConfig, setMediaUserToken } from "../lib/config";
 import { ValidationError } from "../lib/errors";
-import { getOutputMode, outputJson, outputMessage } from "../lib/output";
+import { getOutputMode, outputJson, outputKeyValue, outputMessage } from "../lib/output";
 
 export function registerAuthCommands(program: Command) {
   const auth = program.command("auth").description("Manage authentication");
@@ -60,12 +60,12 @@ export function registerAuthCommands(program: Command) {
       } else {
         if (hasToken) {
           outputMessage("Authenticated with Apple Music token in Keychain");
-          console.log(`Default engine: ${config.defaultEngine}`);
-          console.log(`Storefront: ${config.storefront ?? "auto"}`);
+          outputKeyValue("Default engine", config.defaultEngine);
+          outputKeyValue("Storefront", config.storefront ?? "auto");
         } else {
-          console.log("Not authenticated (API engine unavailable)");
-          console.log("Native engine works without authentication.");
-          console.log(`\nTo enable API: aria auth import --browser safari`);
+          outputKeyValue("Status", "Not authenticated (API engine unavailable)");
+          outputKeyValue("Note", "Native engine works without authentication");
+          outputKeyValue("Setup", "aria auth import --browser safari");
         }
       }
     });

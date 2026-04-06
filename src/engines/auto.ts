@@ -16,8 +16,9 @@ import { ApiEngine } from "./api";
 import { getMediaUserToken } from "../lib/config";
 
 /**
- * Auto engine — uses native for playback, API for catalog search when available.
- * Falls back gracefully: if API auth isn't set up, everything goes through native.
+ * Auto engine — uses native for playback, API for catalog/library when available.
+ * If no API auth is configured, everything routes through native.
+ * If API auth exists but a request fails, the error propagates — no silent fallback.
  */
 export class AutoEngine implements MusicEngine {
   name = "auto";

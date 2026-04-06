@@ -12,8 +12,9 @@ import type {
   SearchType,
   Device,
 } from "../lib/types";
-import { buildIdentity, createEntityRef, parseEntityRef } from "../lib/entities";
+import { buildIdentity, createEntityRef, parseEntityRef, validateRawId } from "../lib/entities";
 import { ExternalServiceError, UnsupportedOperationError } from "../lib/errors";
+import type { DeviceKind } from "../lib/types";
 
 /**
  * macOS native engine — controls Music.app via JXA (JavaScript for Automation).
@@ -83,14 +84,23 @@ const NATIVE_CAPABILITIES: EngineCapabilities = {
 
 function resolvePersistentId(id: string, entityLabel: string): string {
   const ref = parseEntityRef(id);
-  if (!ref) return id;
-  if (ref.source !== "native" || ref.kind !== "persistent") {
-    throw new UnsupportedOperationError(
-      `${entityLabel} ${id} is not a native persistent ID`,
-      `Use \`aria --engine native ... --json\` and pass the ${entityLabel.toLowerCase()}'s \`persistentId\` field for native-only commands.`,
-    );
+  if (ref) {
+    if (ref.source !== "native" || ref.kind !== "persistent") {
+      throw new UnsupportedOperationError(
+        `${entityLabel} ${id} is not a native persistent ID`,
+        `Use \`aria --engine native ... --json\` and pass the ${entityLabel.toLowerCase()}'s \`persistentId\` field for native-only commands.`,
+      );
+    }
+    return validateRawId(ref.value, entityLabel);
   }
-  return ref.value;
+  return validateRawId(id, entityLabel);
+}
+
+const VALID_DEVICE_KINDS = new Set<string>(["airplay", "bluetooth", "computer"]);
+
+function normalizeDeviceKind(raw: string | undefined): DeviceKind {
+  if (raw && VALID_DEVICE_KINDS.has(raw)) return raw as DeviceKind;
+  return "unknown";
 }
 
 export function deriveAlbumsFromTracks(tracks: Track[], limit = 20): Album[] {
@@ -400,10 +410,10 @@ export class NativeEngine implements MusicEngine {
       await jxa(`
         const music = Application("Music");
         const playlist = music.playlists.whose({ persistentID: ${JSON.stringify(persistentPlaylistId)} })[0];
-        if (!playlist) throw new Error("Playlist not found: ${persistentPlaylistId}");
+        if (!playlist) throw new Error("Playlist not found: " + ${JSON.stringify(persistentPlaylistId)});
         const lib = music.libraryPlaylists[0];
         const tracks = lib.tracks.whose({ persistentID: ${JSON.stringify(persistentTrackId)} });
-        if (tracks.length === 0) throw new Error("Track not found: ${persistentTrackId}");
+        if (tracks.length === 0) throw new Error("Track not found: " + ${JSON.stringify(persistentTrackId)});
         music.duplicate(tracks[0], { to: playlist });
       `);
     }
@@ -416,9 +426,9 @@ export class NativeEngine implements MusicEngine {
       await jxa(`
         const music = Application("Music");
         const playlist = music.playlists.whose({ persistentID: ${JSON.stringify(persistentPlaylistId)} })[0];
-        if (!playlist) throw new Error("Playlist not found: ${persistentPlaylistId}");
+        if (!playlist) throw new Error("Playlist not found: " + ${JSON.stringify(persistentPlaylistId)});
         const tracks = playlist.tracks.whose({ persistentID: ${JSON.stringify(persistentTrackId)} });
-        if (tracks.length === 0) throw new Error("Track not found in playlist: ${persistentTrackId}");
+        if (tracks.length === 0) throw new Error("Track not found in playlist: " + ${JSON.stringify(persistentTrackId)});
         tracks[0].delete();
       `);
     }
@@ -501,16 +511,16 @@ export class NativeEngine implements MusicEngine {
   }
 
   async getDevices(): Promise<Device[]> {
-    // AirPlay devices via JXA
-    return jxaJson<Device[]>(`
+    const raw = await jxaJson<Array<{ id: string; name: string; kind?: string; active: boolean }>>(`
       const music = Application("Music");
       const devices = music.AirPlayDevices();
       return devices.map(d => ({
         id: d.persistentID ? d.persistentID() : d.name(),
         name: d.name(),
-        kind: d.kind ? d.kind() : "airplay",
+        kind: d.kind ? d.kind() : undefined,
         active: d.selected(),
       }));
     `);
+    return raw.map(d => ({ ...d, kind: normalizeDeviceKind(d.kind) }));
   }
 }

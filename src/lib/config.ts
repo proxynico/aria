@@ -31,7 +31,11 @@ export async function loadConfig(): Promise<AriaConfig> {
 
 export async function saveConfig(config: AriaConfig): Promise<void> {
   await getConfigDir();
-  await writeFile(CONFIG_FILE, JSON.stringify(config, null, 2) + "\n");
+  try {
+    await writeFile(CONFIG_FILE, JSON.stringify(config, null, 2) + "\n");
+  } catch (err) {
+    throw new Error(`Failed to save config to ${CONFIG_FILE}: ${(err as Error).message}`);
+  }
 }
 
 export async function getMediaUserToken(): Promise<string | undefined> {
