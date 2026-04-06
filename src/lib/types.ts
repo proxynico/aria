@@ -1,7 +1,16 @@
 // ── Core domain types ──
 
-export interface Track {
+export type EntitySource = "native" | "api";
+
+export interface EntityIdentity {
   id: string;
+  source: EntitySource;
+  persistentId?: string;
+  libraryId?: string;
+  catalogId?: string;
+}
+
+export interface Track extends EntityIdentity {
   name: string;
   artist: string;
   album: string;
@@ -10,30 +19,24 @@ export interface Track {
   genre?: string;
   year?: number;
   artworkUrl?: string;
-  catalogId?: string; // Apple Music catalog ID
 }
 
-export interface Album {
-  id: string;
+export interface Album extends EntityIdentity {
   name: string;
   artist: string;
   trackCount: number;
   year?: number;
   genre?: string;
   artworkUrl?: string;
-  catalogId?: string;
 }
 
-export interface Artist {
-  id: string;
+export interface Artist extends EntityIdentity {
   name: string;
   genre?: string;
   artworkUrl?: string;
-  catalogId?: string;
 }
 
-export interface Playlist {
-  id: string;
+export interface Playlist extends EntityIdentity {
   name: string;
   description?: string;
   trackCount: number;
@@ -72,10 +75,22 @@ export interface Device {
   active: boolean;
 }
 
+export interface EngineCapabilities {
+  playback: boolean;
+  queue: boolean;
+  playlistMutation: boolean;
+  devices: boolean;
+  catalogSearch: boolean;
+  libraryRead: boolean;
+  shuffle: boolean;
+  repeat: boolean;
+}
+
 // ── Engine interface ──
 
 export interface MusicEngine {
   name: string;
+  capabilities: EngineCapabilities;
 
   // Playback
   play(query?: string): Promise<void>;
@@ -86,6 +101,10 @@ export interface MusicEngine {
   seek(seconds: number): Promise<void>;
   setVolume(level: number): Promise<void>;
   getVolume(): Promise<number>;
+  setShuffle(enabled: boolean): Promise<void>;
+  getShuffle(): Promise<boolean>;
+  setRepeat(mode: "off" | "one" | "all"): Promise<void>;
+  getRepeat(): Promise<"off" | "one" | "all">;
   getStatus(): Promise<PlaybackState>;
 
   // Search
@@ -123,6 +142,6 @@ export interface GlobalOptions {
 
 export interface AriaConfig {
   defaultEngine: "native" | "api" | "auto";
-  mediaUserToken?: string;
   browser?: string;
+  storefront?: string;
 }

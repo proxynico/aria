@@ -10,10 +10,14 @@ import { registerLibraryCommands } from "./commands/library";
 import { registerAuthCommands } from "./commands/auth";
 import { registerDeviceCommands } from "./commands/devices";
 import { registerQueueCommands } from "./commands/queue";
-import { setColorEnabled, outputError } from "./lib/output";
-import type { MusicEngine } from "./lib/types";
+import { registerConfigCommands } from "./commands/config";
+import { loadConfig } from "./lib/config";
+import { ValidationError } from "./lib/errors";
+import { setColorEnabled, outputErrorDetails } from "./lib/output";
+import type { AriaConfig, MusicEngine } from "./lib/types";
 
 const VERSION = "0.1.0";
+let runtimeConfig: AriaConfig = { defaultEngine: "auto", storefront: "auto" };
 
 const program = new Command()
   .name("aria")
@@ -22,7 +26,7 @@ const program = new Command()
   .option("--json", "Output as JSON")
   .option("--plain", "Output as tab-separated plain text")
   .option("--no-color", "Disable color output")
-  .option("-e, --engine <engine>", "Engine: native, api, auto (default: auto)", "auto")
+  .option("-e, --engine <engine>", "Engine: native, api, auto")
   .option("-v, --verbose", "Verbose output")
   .hook("preAction", () => {
     const opts = program.opts();
@@ -33,14 +37,16 @@ const program = new Command()
 
 function createEngine(): MusicEngine {
   const opts = program.opts();
-  switch (opts.engine) {
+  const engineName = opts.engine ?? runtimeConfig.defaultEngine ?? "auto";
+  switch (engineName) {
     case "native":
       return new NativeEngine();
     case "api":
       return new ApiEngine();
     case "auto":
-    default:
       return new AutoEngine();
+    default:
+      throw new ValidationError(`Unknown engine: ${engineName}. Use one of: native, api, auto`);
   }
 }
 
@@ -58,12 +64,14 @@ registerLibraryCommands(program, getEngine);
 registerAuthCommands(program);
 registerDeviceCommands(program, getEngine);
 registerQueueCommands(program, getEngine);
+registerConfigCommands(program);
 
 // Error handling
 program.exitOverride();
 
 async function main() {
   try {
+    runtimeConfig = await loadConfig();
     await program.parseAsync(process.argv);
   } catch (err: unknown) {
     if (err && typeof err === "object" && "code" in err) {
@@ -72,7 +80,7 @@ async function main() {
         process.exit(0);
       }
     }
-    outputError((err as Error).message || String(err));
+    outputErrorDetails(err);
     process.exit(1);
   }
 }

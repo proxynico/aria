@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import type { MusicEngine, SearchType } from "../lib/types";
+import { parseInteger } from "../lib/input";
 import {
   getOutputMode,
   outputTracks,
@@ -21,7 +22,7 @@ export function registerSearchCommands(program: Command, getEngine: () => MusicE
     .option("-l, --limit <n>", "Max results", "20")
     .action(async (query: string, opts) => {
       const engine = getEngine();
-      const results = await engine.search(query, ["track"], parseInt(opts.limit));
+      const results = await engine.search(query, ["track"], parseInteger("limit", opts.limit, { min: 1 }));
       const mode = getOutputMode(program.opts());
       outputTracks(results.tracks, mode);
     });
@@ -32,7 +33,7 @@ export function registerSearchCommands(program: Command, getEngine: () => MusicE
     .option("-l, --limit <n>", "Max results", "20")
     .action(async (query: string, opts) => {
       const engine = getEngine();
-      const results = await engine.search(query, ["album"], parseInt(opts.limit));
+      const results = await engine.search(query, ["album"], parseInteger("limit", opts.limit, { min: 1 }));
       const mode = getOutputMode(program.opts());
       outputAlbums(results.albums, mode);
     });
@@ -43,7 +44,7 @@ export function registerSearchCommands(program: Command, getEngine: () => MusicE
     .option("-l, --limit <n>", "Max results", "20")
     .action(async (query: string, opts) => {
       const engine = getEngine();
-      const results = await engine.search(query, ["artist"], parseInt(opts.limit));
+      const results = await engine.search(query, ["artist"], parseInteger("limit", opts.limit, { min: 1 }));
       const mode = getOutputMode(program.opts());
       outputArtists(results.artists, mode);
     });
@@ -54,7 +55,7 @@ export function registerSearchCommands(program: Command, getEngine: () => MusicE
     .option("-l, --limit <n>", "Max results", "20")
     .action(async (query: string, opts) => {
       const engine = getEngine();
-      const results = await engine.search(query, ["playlist"], parseInt(opts.limit));
+      const results = await engine.search(query, ["playlist"], parseInteger("limit", opts.limit, { min: 1 }));
       const mode = getOutputMode(program.opts());
       outputPlaylists(results.playlists, mode);
     });
@@ -66,7 +67,7 @@ export function registerSearchCommands(program: Command, getEngine: () => MusicE
     .action(async (query: string, opts) => {
       const engine = getEngine();
       const types: SearchType[] = ["track", "album", "artist", "playlist"];
-      const results = await engine.search(query, types, parseInt(opts.limit));
+      const results = await engine.search(query, types, parseInteger("limit", opts.limit, { min: 1 }));
       const mode = getOutputMode(program.opts());
       outputSearchResults(results, mode);
     });

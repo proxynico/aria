@@ -1,6 +1,8 @@
 import type { Command } from "commander";
 import type { MusicEngine } from "../lib/types";
-import { getOutputMode, outputStatus, outputMessage, outputJson, outputError } from "../lib/output";
+import { ValidationError } from "../lib/errors";
+import { parseInteger } from "../lib/input";
+import { getOutputMode, outputStatus, outputMessage, outputJson } from "../lib/output";
 
 export function registerPlaybackCommands(program: Command, getEngine: () => MusicEngine) {
   program
@@ -78,11 +80,7 @@ export function registerPlaybackCommands(program: Command, getEngine: () => Musi
     .description("Seek to position in seconds")
     .action(async (seconds: string) => {
       const engine = getEngine();
-      const secs = parseInt(seconds, 10);
-      if (isNaN(secs) || secs < 0) {
-        outputError("seek position must be a positive number");
-        process.exit(2);
-      }
+      const secs = parseInteger("seek position", seconds, { min: 0 });
       await engine.seek(secs);
       const mode = getOutputMode(program.opts());
       if (mode === "json") {
@@ -119,11 +117,7 @@ export function registerPlaybackCommands(program: Command, getEngine: () => Musi
           console.log(`Volume: ${vol}`);
         }
       } else {
-        const vol = parseInt(level, 10);
-        if (isNaN(vol) || vol < 0 || vol > 100) {
-          outputError("volume must be 0-100");
-          process.exit(2);
-        }
+        const vol = parseInteger("volume", level, { min: 0, max: 100 });
         await engine.setVolume(vol);
         if (mode === "json") {
           outputJson({ action: "volume", volume: vol });
@@ -138,26 +132,25 @@ export function registerPlaybackCommands(program: Command, getEngine: () => Musi
     .description("Toggle or set shuffle mode")
     .action(async (value?: string) => {
       const engine = getEngine();
-      const status = await engine.getStatus();
       const mode = getOutputMode(program.opts());
-      // shuffle toggle requires native JXA — delegate directly
-      const { $ } = await import("bun");
+      const current = await engine.getShuffle();
       if (value === "on" || value === "off") {
         const enabled = value === "on";
-        await $`osascript -l JavaScript -e 'Application("Music").shuffleEnabled = ${enabled};'`.quiet();
+        await engine.setShuffle(enabled);
         if (mode === "json") {
           outputJson({ shuffle: enabled });
         } else if (mode !== "plain") {
           outputMessage(`Shuffle ${enabled ? "on" : "off"}`);
         }
-      } else {
-        const newState = !status.shuffleEnabled;
-        await $`osascript -l JavaScript -e 'Application("Music").shuffleEnabled = ${newState};'`.quiet();
-        if (mode === "json") {
-          outputJson({ shuffle: newState });
-        } else if (mode !== "plain") {
-          outputMessage(`Shuffle ${newState ? "on" : "off"}`);
-        }
+        return;
+      }
+
+      const newState = !current;
+      await engine.setShuffle(newState);
+      if (mode === "json") {
+        outputJson({ shuffle: newState });
+      } else if (mode !== "plain") {
+        outputMessage(`Shuffle ${newState ? "on" : "off"}`);
       }
     });
 
@@ -165,28 +158,30 @@ export function registerPlaybackCommands(program: Command, getEngine: () => Musi
     .command("repeat [off|one|all]")
     .description("Set repeat mode")
     .action(async (value?: string) => {
+      const engine = getEngine();
       const mode = getOutputMode(program.opts());
-      const { $ } = await import("bun");
-      const repeatMap: Record<string, string> = { off: "off", one: "one", all: "all" };
-      const jxaMap: Record<string, string> = { off: '"off"', one: '"one"', all: '"all"' };
+      const repeatValues = new Set(["off", "one", "all"]);
 
-      if (value && repeatMap[value]) {
-        await $`osascript -l JavaScript -e ${"Application(\"Music\").songRepeat = " + jxaMap[value] + ";"}`.quiet();
+      if (value) {
+        if (!repeatValues.has(value)) {
+          throw new ValidationError("repeat mode must be one of: off, one, all");
+        }
+        await engine.setRepeat(value as "off" | "one" | "all");
         if (mode === "json") {
           outputJson({ repeat: value });
         } else if (mode !== "plain") {
           outputMessage(`Repeat: ${value}`);
         }
+        return;
+      }
+
+      const repeatMode = await engine.getRepeat();
+      if (mode === "json") {
+        outputJson({ repeat: repeatMode });
+      } else if (mode === "plain") {
+        console.log(repeatMode);
       } else {
-        const engine = getEngine();
-        const status = await engine.getStatus();
-        if (mode === "json") {
-          outputJson({ repeat: status.repeatMode });
-        } else if (mode === "plain") {
-          console.log(status.repeatMode);
-        } else {
-          console.log(`Repeat: ${status.repeatMode}`);
-        }
+        console.log(`Repeat: ${repeatMode}`);
       }
     });
 }

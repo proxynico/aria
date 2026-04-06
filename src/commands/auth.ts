@@ -1,7 +1,8 @@
 import type { Command } from "commander";
 import { importCookiesFromBrowser, SUPPORTED_BROWSERS } from "../lib/cookies";
-import { loadConfig, setMediaUserToken, saveConfig } from "../lib/config";
-import { getOutputMode, outputJson, outputMessage, outputError } from "../lib/output";
+import { clearMediaUserToken, getMediaUserToken, loadConfig, setMediaUserToken } from "../lib/config";
+import { ValidationError } from "../lib/errors";
+import { getOutputMode, outputJson, outputMessage } from "../lib/output";
 
 export function registerAuthCommands(program: Command) {
   const auth = program.command("auth").description("Manage authentication");
@@ -13,21 +14,15 @@ export function registerAuthCommands(program: Command) {
     .action(async (opts) => {
       const browser = opts.browser.toLowerCase();
       if (!SUPPORTED_BROWSERS.includes(browser)) {
-        outputError(`Unsupported browser: ${browser}. Use one of: ${SUPPORTED_BROWSERS.join(", ")}`);
-        process.exit(2);
+        throw new ValidationError(`Unsupported browser: ${browser}. Use one of: ${SUPPORTED_BROWSERS.join(", ")}`);
       }
 
-      try {
-        const token = await importCookiesFromBrowser(browser);
-        const mode = getOutputMode(program.opts());
-        if (mode === "json") {
-          outputJson({ success: true, browser, tokenPreview: token.slice(0, 20) + "..." });
-        } else {
-          outputMessage(`Imported media-user-token from ${browser} (${token.length} chars)`);
-        }
-      } catch (err) {
-        outputError((err as Error).message);
-        process.exit(1);
+      const token = await importCookiesFromBrowser(browser);
+      const mode = getOutputMode(program.opts());
+      if (mode === "json") {
+        outputJson({ success: true, browser, storedIn: "keychain", tokenLength: token.length });
+      } else {
+        outputMessage(`Imported media-user-token from ${browser} into Keychain`);
       }
     });
 
@@ -38,9 +33,9 @@ export function registerAuthCommands(program: Command) {
       await setMediaUserToken(token);
       const mode = getOutputMode(program.opts());
       if (mode === "json") {
-        outputJson({ success: true, tokenPreview: token.slice(0, 20) + "..." });
+        outputJson({ success: true, storedIn: "keychain", tokenLength: token.length });
       } else {
-        outputMessage(`Token saved (${token.length} chars)`);
+        outputMessage("Token saved to Keychain");
       }
     });
 
@@ -49,21 +44,24 @@ export function registerAuthCommands(program: Command) {
     .description("Check authentication status")
     .action(async () => {
       const config = await loadConfig();
+      const token = await getMediaUserToken();
       const mode = getOutputMode(program.opts());
-      const hasToken = !!config.mediaUserToken;
+      const hasToken = !!token;
 
       if (mode === "json") {
         outputJson({
           authenticated: hasToken,
           engine: config.defaultEngine,
-          tokenPreview: hasToken ? config.mediaUserToken!.slice(0, 20) + "..." : null,
+          storefront: config.storefront ?? "auto",
+          tokenStorage: hasToken ? "keychain" : null,
         });
       } else if (mode === "plain") {
-        console.log(`authenticated\t${hasToken}\t${config.defaultEngine}`);
+        console.log(`authenticated\t${hasToken}\t${config.defaultEngine}\t${config.storefront ?? "auto"}`);
       } else {
         if (hasToken) {
-          outputMessage(`Authenticated (token: ${config.mediaUserToken!.slice(0, 20)}...)`);
+          outputMessage("Authenticated with Apple Music token in Keychain");
           console.log(`Default engine: ${config.defaultEngine}`);
+          console.log(`Storefront: ${config.storefront ?? "auto"}`);
         } else {
           console.log("Not authenticated (API engine unavailable)");
           console.log("Native engine works without authentication.");
@@ -76,14 +74,12 @@ export function registerAuthCommands(program: Command) {
     .command("clear")
     .description("Remove stored credentials")
     .action(async () => {
-      const config = await loadConfig();
-      delete config.mediaUserToken;
-      await saveConfig(config);
+      await clearMediaUserToken();
       const mode = getOutputMode(program.opts());
       if (mode === "json") {
         outputJson({ success: true });
       } else {
-        outputMessage("Credentials cleared");
+        outputMessage("Credentials cleared from Keychain");
       }
     });
 }

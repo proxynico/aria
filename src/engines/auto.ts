@@ -1,4 +1,5 @@
 import type {
+  EngineCapabilities,
   MusicEngine,
   Track,
   Album,
@@ -20,13 +21,28 @@ import { getMediaUserToken } from "../lib/config";
  */
 export class AutoEngine implements MusicEngine {
   name = "auto";
-  private native = new NativeEngine();
-  private api = new ApiEngine();
+  capabilities: EngineCapabilities = {
+    playback: true,
+    queue: false,
+    playlistMutation: true,
+    devices: true,
+    catalogSearch: true,
+    libraryRead: true,
+    shuffle: true,
+    repeat: true,
+  };
+
   private apiAvailable: boolean | null = null;
+
+  constructor(
+    private native: MusicEngine = new NativeEngine(),
+    private api: MusicEngine = new ApiEngine(),
+    private tokenLoader: () => Promise<string | undefined> = getMediaUserToken,
+  ) {}
 
   private async hasApi(): Promise<boolean> {
     if (this.apiAvailable !== null) return this.apiAvailable;
-    const token = await getMediaUserToken();
+    const token = await this.tokenLoader();
     this.apiAvailable = !!token;
     return this.apiAvailable;
   }
@@ -40,52 +56,47 @@ export class AutoEngine implements MusicEngine {
   seek(seconds: number) { return this.native.seek(seconds); }
   setVolume(level: number) { return this.native.setVolume(level); }
   getVolume() { return this.native.getVolume(); }
+  setShuffle(enabled: boolean) { return this.native.setShuffle(enabled); }
+  getShuffle() { return this.native.getShuffle(); }
+  setRepeat(mode: "off" | "one" | "all") { return this.native.setRepeat(mode); }
+  getRepeat() { return this.native.getRepeat(); }
   getStatus() { return this.native.getStatus(); }
   getDevices() { return this.native.getDevices(); }
   addToQueue(trackId: string) { return this.native.addToQueue(trackId); }
   addToPlaylist(playlistId: string, trackIds: string[]) { return this.native.addToPlaylist(playlistId, trackIds); }
   removeFromPlaylist(playlistId: string, trackIds: string[]) { return this.native.removeFromPlaylist(playlistId, trackIds); }
-  getPlaylistInfo(playlistId: string) { return this.native.getPlaylistInfo(playlistId); }
 
-  // Search: prefer API (full catalog) if available, fall back to native (library only)
+  // Search: use API for catalog search when authenticated, otherwise use native library search.
   async search(query: string, types: SearchType[], limit?: number): Promise<SearchResults> {
     if (await this.hasApi()) {
-      try {
-        return await this.api.search(query, types, limit);
-      } catch {
-        // API failed — fall back to native
-        return this.native.search(query, types, limit);
-      }
+      return this.api.search(query, types, limit);
     }
     return this.native.search(query, types, limit);
   }
 
-  // Library: prefer API if available (richer metadata), fall back to native
+  // Library: prefer API when authenticated for richer metadata; otherwise use native.
   async getPlaylists(): Promise<Playlist[]> {
-    if (await this.hasApi()) {
-      try { return await this.api.getPlaylists(); } catch { /* fall through */ }
-    }
+    if (await this.hasApi()) return this.api.getPlaylists();
     return this.native.getPlaylists();
   }
 
   async getPlaylistTracks(playlistId: string): Promise<Track[]> {
-    if (await this.hasApi()) {
-      try { return await this.api.getPlaylistTracks(playlistId); } catch { /* fall through */ }
-    }
+    if (await this.hasApi()) return this.api.getPlaylistTracks(playlistId);
     return this.native.getPlaylistTracks(playlistId);
   }
 
+  async getPlaylistInfo(playlistId: string): Promise<PlaylistDetails> {
+    if (await this.hasApi()) return this.api.getPlaylistInfo(playlistId);
+    return this.native.getPlaylistInfo(playlistId);
+  }
+
   async getLibraryTracks(limit?: number, offset?: number): Promise<Track[]> {
-    if (await this.hasApi()) {
-      try { return await this.api.getLibraryTracks(limit, offset); } catch { /* fall through */ }
-    }
+    if (await this.hasApi()) return this.api.getLibraryTracks(limit, offset);
     return this.native.getLibraryTracks(limit, offset);
   }
 
   async getLibraryAlbums(limit?: number, offset?: number): Promise<Album[]> {
-    if (await this.hasApi()) {
-      try { return await this.api.getLibraryAlbums(limit, offset); } catch { /* fall through */ }
-    }
+    if (await this.hasApi()) return this.api.getLibraryAlbums(limit, offset);
     return this.native.getLibraryAlbums(limit, offset);
   }
 }

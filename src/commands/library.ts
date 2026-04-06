@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import type { MusicEngine } from "../lib/types";
+import { parseInteger } from "../lib/input";
 import { getOutputMode, outputTracks, outputAlbums, outputPlaylists, outputPlaylistDetails, outputJson, outputMessage } from "../lib/output";
 
 export function registerLibraryCommands(program: Command, getEngine: () => MusicEngine) {
@@ -13,7 +14,10 @@ export function registerLibraryCommands(program: Command, getEngine: () => Music
     .option("-o, --offset <n>", "Offset", "0")
     .action(async (opts) => {
       const engine = getEngine();
-      const tracks = await engine.getLibraryTracks(parseInt(opts.limit), parseInt(opts.offset));
+      const tracks = await engine.getLibraryTracks(
+        parseInteger("limit", opts.limit, { min: 1 }),
+        parseInteger("offset", opts.offset, { min: 0 }),
+      );
       const mode = getOutputMode(program.opts());
       outputTracks(tracks, mode);
     });
@@ -25,7 +29,10 @@ export function registerLibraryCommands(program: Command, getEngine: () => Music
     .option("-o, --offset <n>", "Offset", "0")
     .action(async (opts) => {
       const engine = getEngine();
-      const albums = await engine.getLibraryAlbums(parseInt(opts.limit), parseInt(opts.offset));
+      const albums = await engine.getLibraryAlbums(
+        parseInteger("limit", opts.limit, { min: 1 }),
+        parseInteger("offset", opts.offset, { min: 0 }),
+      );
       const mode = getOutputMode(program.opts());
       outputAlbums(albums, mode);
     });

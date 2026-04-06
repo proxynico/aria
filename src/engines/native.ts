@@ -1,5 +1,6 @@
 import { $ } from "bun";
 import type {
+  EngineCapabilities,
   MusicEngine,
   Track,
   Album,
@@ -11,6 +12,8 @@ import type {
   SearchType,
   Device,
 } from "../lib/types";
+import { buildIdentity, createEntityRef, parseEntityRef } from "../lib/entities";
+import { ExternalServiceError, UnsupportedOperationError } from "../lib/errors";
 
 /**
  * macOS native engine — controls Music.app via JXA (JavaScript for Automation).
@@ -23,9 +26,9 @@ async function jxa(script: string): Promise<string> {
     const err = result.stderr.toString().trim();
     // Music.app not running is a common case
     if (err.includes("not running") || err.includes("-1728")) {
-      throw new Error("Music.app is not running. Open it first.");
+      throw new ExternalServiceError("Music.app is not running.", "Open Music.app first.");
     }
-    throw new Error(`JXA error: ${err}`);
+    throw new ExternalServiceError(`JXA error: ${err}`);
   }
   return result.stdout.toString().trim();
 }
@@ -41,7 +44,10 @@ async function jxaJson<T>(script: string): Promise<T> {
 
 function parseTrack(raw: NativeTrackData): Track {
   return {
-    id: String(raw.id ?? raw.persistentID ?? ""),
+    ...buildIdentity({
+      source: "native",
+      persistentId: String(raw.persistentID ?? raw.id ?? ""),
+    }),
     name: raw.name ?? "Unknown",
     artist: raw.artist ?? "Unknown",
     album: raw.album ?? "",
@@ -64,8 +70,67 @@ interface NativeTrackData {
   year?: number;
 }
 
+const NATIVE_CAPABILITIES: EngineCapabilities = {
+  playback: true,
+  queue: false,
+  playlistMutation: true,
+  devices: true,
+  catalogSearch: false,
+  libraryRead: true,
+  shuffle: true,
+  repeat: true,
+};
+
+function resolvePersistentId(id: string, entityLabel: string): string {
+  const ref = parseEntityRef(id);
+  if (!ref) return id;
+  if (ref.source !== "native" || ref.kind !== "persistent") {
+    throw new UnsupportedOperationError(
+      `${entityLabel} ${id} is not a native persistent ID`,
+      `Use \`aria --engine native ... --json\` and pass the ${entityLabel.toLowerCase()}'s \`persistentId\` field for native-only commands.`,
+    );
+  }
+  return ref.value;
+}
+
+export function deriveAlbumsFromTracks(tracks: Track[], limit = 20): Album[] {
+  const albums: Album[] = [];
+  const seen = new Set<string>();
+  for (const track of tracks) {
+    if (!track.album) continue;
+    const key = `${track.album}::${track.artist}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    albums.push({
+      ...buildIdentity({ source: "native", derivedId: `album:${key}` }),
+      name: track.album,
+      artist: track.artist,
+      trackCount: 0,
+      year: track.year,
+      genre: track.genre,
+    });
+  }
+  return albums.slice(0, limit);
+}
+
+export function deriveArtistsFromTracks(tracks: Track[], limit = 20): Artist[] {
+  const artists: Artist[] = [];
+  const seen = new Set<string>();
+  for (const track of tracks) {
+    if (seen.has(track.artist)) continue;
+    seen.add(track.artist);
+    artists.push({
+      ...buildIdentity({ source: "native", derivedId: `artist:${track.artist}` }),
+      name: track.artist,
+      genre: track.genre,
+    });
+  }
+  return artists.slice(0, limit);
+}
+
 export class NativeEngine implements MusicEngine {
   name = "native";
+  capabilities = NATIVE_CAPABILITIES;
 
   async play(query?: string): Promise<void> {
     if (!query) {
@@ -119,6 +184,24 @@ export class NativeEngine implements MusicEngine {
     return parseInt(raw, 10);
   }
 
+  async setShuffle(enabled: boolean): Promise<void> {
+    await jxa(`Application("Music").shuffleEnabled = ${enabled};`);
+  }
+
+  async getShuffle(): Promise<boolean> {
+    const raw = await jxa(`Application("Music").shuffleEnabled();`);
+    return raw === "true";
+  }
+
+  async setRepeat(mode: "off" | "one" | "all"): Promise<void> {
+    await jxa(`Application("Music").songRepeat = ${JSON.stringify(mode)};`);
+  }
+
+  async getRepeat(): Promise<"off" | "one" | "all"> {
+    const raw = await jxa(`Application("Music").songRepeat();`);
+    return raw === "one" || raw === "all" ? raw : "off";
+  }
+
   async getStatus(): Promise<PlaybackState> {
     return jxaJson<PlaybackState>(`
       const music = Application("Music");
@@ -136,7 +219,9 @@ export class NativeEngine implements MusicEngine {
       return {
         state: mapped,
         track: {
-          id: String(t.persistentID()),
+          id: ${JSON.stringify(createEntityRef("native", "persistent", ""))} + String(t.persistentID()),
+          source: "native",
+          persistentId: String(t.persistentID()),
           name: t.name(),
           artist: t.artist(),
           album: t.album(),
@@ -156,8 +241,8 @@ export class NativeEngine implements MusicEngine {
   async search(query: string, types: SearchType[], limit = 20): Promise<SearchResults> {
     const results: SearchResults = { tracks: [], albums: [], artists: [], playlists: [] };
 
-    if (types.includes("track") || types.length === 0) {
-      const tracks = await jxaJson<NativeTrackData[]>(`
+    const needsTrackSearch = types.length === 0 || types.some(type => type !== "playlist");
+    const tracks = needsTrackSearch ? await jxaJson<NativeTrackData[]>(`
         const music = Application("Music");
         const found = music.search(music.libraryPlaylists[0], { for: ${JSON.stringify(query)} });
         const limit = ${limit};
@@ -176,8 +261,11 @@ export class NativeEngine implements MusicEngine {
           });
         }
         return tracks;
-      `);
-      results.tracks = tracks.map(parseTrack);
+      `) : [];
+    const parsedTracks = tracks.map(parseTrack);
+
+    if (types.includes("track") || types.length === 0) {
+      results.tracks = parsedTracks;
     }
 
     if (types.includes("playlist")) {
@@ -187,58 +275,23 @@ export class NativeEngine implements MusicEngine {
     }
 
     // Albums and artists are derived from track search results (Music.app search only returns tracks)
-    if (types.includes("album") && results.tracks.length > 0) {
-      const seen = new Set<string>();
-      for (const t of results.tracks) {
-        const key = `${t.album}::${t.artist}`;
-        if (!seen.has(key) && t.album) {
-          seen.add(key);
-          results.albums.push({
-            id: key,
-            name: t.album,
-            artist: t.artist,
-            trackCount: 0,
-            year: t.year,
-            genre: t.genre,
-          });
-        }
-      }
-      results.albums = results.albums.slice(0, limit);
+    if (types.includes("album")) {
+      results.albums = deriveAlbumsFromTracks(parsedTracks, limit);
     }
 
-    if (types.includes("artist") && results.tracks.length > 0) {
-      const seen = new Set<string>();
-      for (const t of results.tracks) {
-        if (!seen.has(t.artist)) {
-          seen.add(t.artist);
-          results.artists.push({
-            id: t.artist,
-            name: t.artist,
-            genre: t.genre,
-          });
-        }
-      }
-      results.artists = results.artists.slice(0, limit);
+    if (types.includes("artist")) {
+      results.artists = deriveArtistsFromTracks(parsedTracks, limit);
     }
 
     return results;
   }
 
   async addToQueue(trackId: string): Promise<void> {
-    // Music.app doesn't have a direct "add to queue" via JXA.
-    // Workaround: find the track and use "play next"
-    await jxa(`
-      const music = Application("Music");
-      const lib = music.libraryPlaylists[0];
-      const tracks = lib.tracks.whose({ persistentID: ${JSON.stringify(trackId)} });
-      if (tracks.length > 0) {
-        // Use System Events to trigger "Play Next" — this is a known limitation
-        // For now, we add to Up Next by playing after current
-        music.play(tracks[0]);
-      } else {
-        throw new Error("Track not found: ${trackId}");
-      }
-    `);
+    const persistentId = resolvePersistentId(trackId, "Track");
+    throw new UnsupportedOperationError(
+      `Queue management for track ${persistentId} is not implemented reliably for Music.app.`,
+      "The previous implementation interrupted playback. Use `aria play <query>` for now instead of `queue add`.",
+    );
   }
 
   async getPlaylists(): Promise<Playlist[]> {
@@ -251,7 +304,9 @@ export class NativeEngine implements MusicEngine {
         // Skip internal playlists (Library, Music, etc.)
         if (kind === "none" || kind === "folder") {
           result.push({
-            id: p.persistentID(),
+            id: ${JSON.stringify(createEntityRef("native", "persistent", ""))} + p.persistentID(),
+            source: "native",
+            persistentId: p.persistentID(),
             name: p.name(),
             trackCount: p.tracks.length,
           });
@@ -262,9 +317,10 @@ export class NativeEngine implements MusicEngine {
   }
 
   async getPlaylistInfo(playlistId: string): Promise<PlaylistDetails> {
+    const persistentId = resolvePersistentId(playlistId, "Playlist");
     const info = await jxaJson<{ name: string; description: string; trackCount: number; hasArtwork: boolean }>(`
       const music = Application("Music");
-      const playlists = music.playlists.whose({ persistentID: ${JSON.stringify(playlistId)} });
+      const playlists = music.playlists.whose({ persistentID: ${JSON.stringify(persistentId)} });
       if (playlists.length === 0) throw new Error("Playlist not found");
       const p = playlists[0];
       return {
@@ -279,10 +335,10 @@ export class NativeEngine implements MusicEngine {
     let artworkPath: string | undefined;
     if (info.hasArtwork) {
       try {
-        const tmpPath = `/tmp/aria-artwork-${playlistId}.png`;
+        const tmpPath = `/tmp/aria-artwork-${persistentId}.png`;
         await jxa(`
           const music = Application("Music");
-          const p = music.playlists.whose({ persistentID: ${JSON.stringify(playlistId)} })[0];
+          const p = music.playlists.whose({ persistentID: ${JSON.stringify(persistentId)} })[0];
           const artwork = p.artworks[0];
           const rawData = artwork.rawData();
           const app = Application.currentApplication();
@@ -325,7 +381,7 @@ export class NativeEngine implements MusicEngine {
     const totalDuration = tracks.reduce((sum, t) => sum + t.duration, 0);
 
     return {
-      id: playlistId,
+      ...buildIdentity({ source: "native", persistentId }),
       name: info.name,
       description: info.description || undefined,
       trackCount: info.trackCount,
@@ -338,37 +394,42 @@ export class NativeEngine implements MusicEngine {
   }
 
   async addToPlaylist(playlistId: string, trackIds: string[]): Promise<void> {
+    const persistentPlaylistId = resolvePersistentId(playlistId, "Playlist");
     for (const trackId of trackIds) {
+      const persistentTrackId = resolvePersistentId(trackId, "Track");
       await jxa(`
         const music = Application("Music");
-        const playlist = music.playlists.whose({ persistentID: ${JSON.stringify(playlistId)} })[0];
-        if (!playlist) throw new Error("Playlist not found: ${playlistId}");
+        const playlist = music.playlists.whose({ persistentID: ${JSON.stringify(persistentPlaylistId)} })[0];
+        if (!playlist) throw new Error("Playlist not found: ${persistentPlaylistId}");
         const lib = music.libraryPlaylists[0];
-        const tracks = lib.tracks.whose({ persistentID: ${JSON.stringify(trackId)} });
-        if (tracks.length === 0) throw new Error("Track not found: ${trackId}");
+        const tracks = lib.tracks.whose({ persistentID: ${JSON.stringify(persistentTrackId)} });
+        if (tracks.length === 0) throw new Error("Track not found: ${persistentTrackId}");
         music.duplicate(tracks[0], { to: playlist });
       `);
     }
   }
 
   async removeFromPlaylist(playlistId: string, trackIds: string[]): Promise<void> {
+    const persistentPlaylistId = resolvePersistentId(playlistId, "Playlist");
     for (const trackId of trackIds) {
+      const persistentTrackId = resolvePersistentId(trackId, "Track");
       await jxa(`
         const music = Application("Music");
-        const playlist = music.playlists.whose({ persistentID: ${JSON.stringify(playlistId)} })[0];
-        if (!playlist) throw new Error("Playlist not found: ${playlistId}");
-        const tracks = playlist.tracks.whose({ persistentID: ${JSON.stringify(trackId)} });
-        if (tracks.length === 0) throw new Error("Track not found in playlist: ${trackId}");
+        const playlist = music.playlists.whose({ persistentID: ${JSON.stringify(persistentPlaylistId)} })[0];
+        if (!playlist) throw new Error("Playlist not found: ${persistentPlaylistId}");
+        const tracks = playlist.tracks.whose({ persistentID: ${JSON.stringify(persistentTrackId)} });
+        if (tracks.length === 0) throw new Error("Track not found in playlist: ${persistentTrackId}");
         tracks[0].delete();
       `);
     }
   }
 
   async getPlaylistTracks(playlistId: string): Promise<Track[]> {
+    const persistentId = resolvePersistentId(playlistId, "Playlist");
     const raw = await jxaJson<NativeTrackData[]>(`
       const music = Application("Music");
-      const playlists = music.playlists.whose({ persistentID: ${JSON.stringify(playlistId)} });
-      if (playlists.length === 0) return [];
+      const playlists = music.playlists.whose({ persistentID: ${JSON.stringify(persistentId)} });
+      if (playlists.length === 0) throw new Error("Playlist not found");
       const tracks = playlists[0].tracks();
       return tracks.map(t => ({
         id: t.persistentID(),
@@ -409,30 +470,34 @@ export class NativeEngine implements MusicEngine {
     return raw.map(parseTrack);
   }
 
-  async getLibraryAlbums(limit = 50, _offset = 0): Promise<Album[]> {
-    // Music.app doesn't expose albums directly — derive from tracks
-    const tracks = await this.getLibraryTracks(500, 0);
-    const albumMap = new Map<string, Album>();
+  async getLibraryAlbums(limit = 50, offset = 0): Promise<Album[]> {
+    return jxaJson<Album[]>(`
+      const music = Application("Music");
+      const allTracks = music.libraryPlaylists[0].tracks();
+      const albumMap = {};
 
-    for (const t of tracks) {
-      if (!t.album) continue;
-      const key = `${t.album}::${t.artist}`;
-      const existing = albumMap.get(key);
-      if (existing) {
-        existing.trackCount++;
-      } else {
-        albumMap.set(key, {
-          id: key,
-          name: t.album,
-          artist: t.artist,
-          trackCount: 1,
-          year: t.year,
-          genre: t.genre,
-        });
+      for (let i = 0; i < allTracks.length; i++) {
+        const t = allTracks[i];
+        const album = t.album();
+        const artist = t.artist();
+        if (!album) continue;
+        const key = album + "::" + artist;
+        if (!albumMap[key]) {
+          albumMap[key] = {
+            id: "native:derived:album:" + key,
+            source: "native",
+            name: album,
+            artist,
+            trackCount: 0,
+            year: t.year() || undefined,
+            genre: t.genre() || undefined,
+          };
+        }
+        albumMap[key].trackCount += 1;
       }
-    }
 
-    return Array.from(albumMap.values()).slice(0, limit);
+      return Object.values(albumMap).slice(${offset}, ${offset} + ${limit});
+    `);
   }
 
   async getDevices(): Promise<Device[]> {

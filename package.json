@@ -8,8 +8,11 @@
   },
   "scripts": {
     "dev": "bun run src/index.ts",
-    "build": "bun build src/index.ts --compile --outfile aria",
-    "link": "bun link"
+    "build": "bun build src/index.ts --compile --outfile dist/aria",
+    "link": "bun link",
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bun test",
+    "check": "bun run typecheck && bun test"
   },
   "dependencies": {
     "commander": "^13.1.0"

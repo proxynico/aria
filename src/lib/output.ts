@@ -1,4 +1,5 @@
 import type { OutputMode, Track, Album, Artist, Playlist, PlaylistDetails, PlaybackState, Device, SearchResults } from "./types";
+import { isAriaError } from "./errors";
 
 const RESET = "\x1b[0m";
 const BOLD = "\x1b[1m";
@@ -36,19 +37,19 @@ export function outputJson(data: unknown) {
 // ── Plain output (tab-separated, scriptable) ──
 
 export function outputPlainTrack(t: Track) {
-  console.log(`track\t${t.id}\t${t.name}\t${t.artist}\t${t.album}\t${formatDuration(t.duration)}`);
+  console.log(`track\t${t.id}\t${t.name}\t${t.artist}\t${t.album}\t${formatDuration(t.duration)}\t${t.source}`);
 }
 
 export function outputPlainAlbum(a: Album) {
-  console.log(`album\t${a.id}\t${a.name}\t${a.artist}\t${a.trackCount}\t${a.year ?? ""}`);
+  console.log(`album\t${a.id}\t${a.name}\t${a.artist}\t${a.trackCount}\t${a.year ?? ""}\t${a.source}`);
 }
 
 export function outputPlainArtist(a: Artist) {
-  console.log(`artist\t${a.id}\t${a.name}\t${a.genre ?? ""}`);
+  console.log(`artist\t${a.id}\t${a.name}\t${a.genre ?? ""}\t${a.source}`);
 }
 
 export function outputPlainPlaylist(p: Playlist) {
-  console.log(`playlist\t${p.id}\t${p.name}\t${p.trackCount}`);
+  console.log(`playlist\t${p.id}\t${p.name}\t${p.trackCount}\t${p.source}`);
 }
 
 export function outputPlainStatus(s: PlaybackState) {
@@ -236,4 +237,21 @@ export function outputMessage(msg: string) {
 
 export function outputError(msg: string) {
   console.error(c(RED, `error: ${msg}`));
+}
+
+export function outputErrorDetails(error: unknown) {
+  if (isAriaError(error)) {
+    outputError(error.message);
+    if (error.hint) {
+      console.error(c(DIM, error.hint));
+    }
+    return;
+  }
+
+  if (error instanceof Error) {
+    outputError(error.message);
+    return;
+  }
+
+  outputError(String(error));
 }
