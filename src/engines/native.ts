@@ -21,13 +21,34 @@ import type { DeviceKind } from "../lib/types";
  * No auth needed, no rate limits. macOS only.
  */
 
+async function ensureMusicRunning(): Promise<void> {
+  const check = await $`osascript -l JavaScript -e 'Application("Music").running()'`.quiet().nothrow();
+  if (check.stdout.toString().trim() === "true") return;
+
+  // Launch hidden — no window popping up
+  await $`osascript -l JavaScript -e 'const app = Application("Music"); app.launch()'`.quiet().nothrow();
+
+  // Wait up to 5s for it to be ready
+  for (let i = 0; i < 10; i++) {
+    await Bun.sleep(500);
+    const ready = await $`osascript -l JavaScript -e 'Application("Music").running()'`.quiet().nothrow();
+    if (ready.stdout.toString().trim() === "true") return;
+  }
+  throw new ExternalServiceError("Music.app failed to start.", "Try opening Music.app manually.");
+}
+
 async function jxa(script: string): Promise<string> {
   const result = await $`osascript -l JavaScript -e ${script}`.quiet().nothrow();
   if (result.exitCode !== 0) {
     const err = result.stderr.toString().trim();
-    // Music.app not running is a common case
+    // Music.app not running — launch it silently and retry
     if (err.includes("not running") || err.includes("-1728")) {
-      throw new ExternalServiceError("Music.app is not running.", "Open Music.app first.");
+      await ensureMusicRunning();
+      const retry = await $`osascript -l JavaScript -e ${script}`.quiet().nothrow();
+      if (retry.exitCode !== 0) {
+        throw new ExternalServiceError(`JXA error: ${retry.stderr.toString().trim()}`);
+      }
+      return retry.stdout.toString().trim();
     }
     throw new ExternalServiceError(`JXA error: ${err}`);
   }
