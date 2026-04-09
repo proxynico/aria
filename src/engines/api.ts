@@ -70,8 +70,12 @@ async function getWebPlayerDevToken(): Promise<string> {
   }
 
   // If not in the main HTML, try fetching JS assets
-  const jsUrls = html.match(/https:\/\/[^"']+\.js/g) || [];
-  for (const url of jsUrls.slice(0, 5)) {
+  // Match both absolute (https://...) and relative (/assets/...) script src paths
+  const absoluteUrls = html.match(/https:\/\/[^"']+\.js/g) || [];
+  const relativeUrls = (html.match(/src="(\/[^"]+\.js)"/g) || [])
+    .map((m: string) => `https://music.apple.com${m.match(/src="([^"]+)"/)?.[1]}`);
+  const jsUrls = [...absoluteUrls, ...relativeUrls];
+  for (const url of jsUrls.slice(0, 10)) {
     try {
       const jsRes = await fetch(url);
       const js = await jsRes.text();
