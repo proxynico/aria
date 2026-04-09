@@ -17,7 +17,7 @@ Three engines behind one interface (`MusicEngine`):
 
 | Engine | Purpose | Auth |
 |--------|---------|------|
-| **Native** (`engines/native.ts`) | Controls Music.app via JXA. Playback, library, playlists, shuffle, repeat, AirPlay. No network. | None |
+| **Native** (`engines/native.ts`) | Controls Music.app via JXA. Playback, library, playlists, shuffle, repeat, AirPlay. No network. Auto-launches Music.app silently if not running. | None |
 | **API** (`engines/api.ts`) | Full Apple Music catalog + library via `amp-api.music.apple.com`. Search 100M+ tracks. | `media-user-token` in Keychain |
 | **Auto** (`engines/auto.ts`) | Routes: native for playback, API for catalog/library when authenticated. If API auth fails, error propagates (no silent fallback). | Optional |
 
