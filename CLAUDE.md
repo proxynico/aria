@@ -1,4 +1,4 @@
-# Aria
+# Cider Music
 
 Apple Music CLI for power users and AI agents. Inspired by [Spogo](https://github.com/steipete/spogo) (Spotify CLI).
 
@@ -43,10 +43,10 @@ src/
   lib/
     types.ts            Domain types, MusicEngine interface, EngineCapabilities, DeviceKind
     entities.ts         Entity identity system (source-qualified IDs, ref parsing, ID validation)
-    errors.ts           Error hierarchy: AriaError > ValidationError, AuthError, ExternalServiceError, UnsupportedOperationError
+    errors.ts           Error hierarchy: CiderError > ValidationError, AuthError, ExternalServiceError, UnsupportedOperationError
     input.ts            Input parsing (parseInteger with bounds checking)
     output.ts           JSON/plain/human output formatting + outputKeyValue helper
-    config.ts           ~/.config/aria/config.json management
+    config.ts           ~/.config/cider-music/config.json management
     cookies.ts          Browser cookie extraction (Safari, Chrome, Firefox, Edge, Brave) with timeouts
     secrets.ts          macOS Keychain read/write/clear for media-user-token
 tests/
@@ -62,15 +62,15 @@ tests/
 ## Key Conventions
 
 - Every command supports three output modes: `--json`, `--plain` (tab-separated), default (colorized human)
-- Errors use the `AriaError` hierarchy with error codes and optional hints. Never raw `console.error()`.
+- Errors use the `CiderError` hierarchy with error codes and optional hints. Never raw `console.error()`.
 - All output goes through `lib/output.ts` helpers (`outputMessage`, `outputKeyValue`, `outputErrorDetails`)
 - Entity IDs are source-qualified: `native:persistent:ABC123`, `api:library:l.123`, `api:catalog:1234567`
 - Raw IDs are validated against `[A-Za-z0-9._-]+` before embedding in JXA scripts
 - JXA scripts run via `jxa()` and `jxaJson<T>()` helpers; all interpolated values use `JSON.stringify()`
 - API engine developer token is extracted from web player JS with JWT validation (alg+typ check) and 30-min cache TTL
-- Tokens stored in macOS Keychain (service: `aria-music`), not in config file
-- Config lives at `~/.config/aria/config.json` (engine + storefront defaults only)
-- Artwork exports to `/tmp/aria-artwork-{id}.png`
+- Tokens stored in macOS Keychain (service: `cider-music`), not in config file
+- Config lives at `~/.config/cider-music/config.json` (engine + storefront defaults only)
+- Artwork exports to `/tmp/cider-music-artwork-{id}.png`
 
 ## Commands
 
@@ -92,10 +92,10 @@ Config:      config status | config engine [native|api|auto] | config storefront
 ```bash
 bun install
 bun run src/index.ts status     # run directly
-bun link                        # link globally as `aria`
-bun run build                   # compile to dist/aria
+bun link                        # link globally as `cider-music`
+bun run build                   # compile to dist/cider-music
 bun run typecheck               # tsc --noEmit
-bun test                        # 34 tests across 7 files
+bun test                        # 40 tests across 8 files
 bun run check                   # typecheck + test
 ```
 
@@ -104,7 +104,7 @@ bun run check                   # typecheck + test
 1. Create handler in `src/commands/` following existing patterns
 2. Accept `program: Command` and `getEngine: () => MusicEngine`
 3. Handle all three output modes (`getOutputMode(program.opts())`)
-4. Use `AriaError` subclasses for errors (never raw `throw new Error()`)
+4. Use `CiderError` subclasses for errors (never raw `throw new Error()`)
 5. Register in `src/index.ts`
 
 ## Adding to the MusicEngine Interface

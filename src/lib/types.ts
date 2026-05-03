@@ -142,7 +142,7 @@ export interface GlobalOptions {
   engine: "native" | "api" | "auto";
 }
 
-export interface AriaConfig {
+export interface CiderConfig {
   defaultEngine: "native" | "api" | "auto";
   browser?: string;
   storefront?: string;

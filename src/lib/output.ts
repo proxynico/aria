@@ -1,5 +1,5 @@
 import type { OutputMode, Track, Album, Artist, Playlist, PlaylistDetails, PlaybackState, Device, SearchResults } from "./types";
-import { isAriaError } from "./errors";
+import { isCiderError, ValidationError } from "./errors";
 
 const RESET = "\x1b[0m";
 const BOLD = "\x1b[1m";
@@ -112,6 +112,9 @@ export function outputHumanDevice(d: Device, index?: number) {
 // ── Dispatcher ──
 
 export function getOutputMode(opts: { json?: boolean; plain?: boolean }): OutputMode {
+  if (opts.json && opts.plain) {
+    throw new ValidationError("--json and --plain cannot be used together");
+  }
   if (opts.json) return "json";
   if (opts.plain) return "plain";
   return "human";
@@ -165,20 +168,30 @@ export function outputDevices(devices: Device[], mode: OutputMode) {
 export function outputSearchResults(results: SearchResults, mode: OutputMode) {
   if (mode === "json") return outputJson(results);
 
+  const hasResults = results.tracks.length > 0
+    || results.albums.length > 0
+    || results.artists.length > 0
+    || results.playlists.length > 0;
+
+  if (!hasResults) {
+    if (mode === "human") console.log(c(DIM, "No results found"));
+    return;
+  }
+
   if (results.tracks.length > 0) {
-    console.log(mode === "plain" ? "" : c(BOLD + CYAN, "\nTracks"));
+    if (mode !== "plain") console.log(c(BOLD + CYAN, "\nTracks"));
     outputTracks(results.tracks, mode);
   }
   if (results.albums.length > 0) {
-    console.log(mode === "plain" ? "" : c(BOLD + CYAN, "\nAlbums"));
+    if (mode !== "plain") console.log(c(BOLD + CYAN, "\nAlbums"));
     outputAlbums(results.albums, mode);
   }
   if (results.artists.length > 0) {
-    console.log(mode === "plain" ? "" : c(BOLD + CYAN, "\nArtists"));
+    if (mode !== "plain") console.log(c(BOLD + CYAN, "\nArtists"));
     outputArtists(results.artists, mode);
   }
   if (results.playlists.length > 0) {
-    console.log(mode === "plain" ? "" : c(BOLD + CYAN, "\nPlaylists"));
+    if (mode !== "plain") console.log(c(BOLD + CYAN, "\nPlaylists"));
     outputPlaylists(results.playlists, mode);
   }
 }
@@ -244,7 +257,7 @@ export function outputError(msg: string) {
 }
 
 export function outputErrorDetails(error: unknown) {
-  if (isAriaError(error)) {
+  if (isCiderError(error)) {
     outputError(error.message);
     if (error.hint) {
       console.error(c(DIM, error.hint));

@@ -12,11 +12,12 @@ import type {
   Device,
 } from "../lib/types";
 import { getMediaUserToken, loadConfig } from "../lib/config";
-import { buildIdentity, parseEntityRef } from "../lib/entities";
+import { buildIdentity, parseEntityRef, validateRawId } from "../lib/entities";
 import { AuthError, ExternalServiceError, UnsupportedOperationError } from "../lib/errors";
 
 const AMP_API_BASE = "https://amp-api.music.apple.com/v1";
 const WEBPLAYER_TOKEN_URL = "https://music.apple.com";
+const FETCH_TIMEOUT_MS = 15_000;
 
 /**
  * Apple Music web API engine.
@@ -36,11 +37,17 @@ let cachedStorefront: string | null = null;
 const DEV_TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const JWT_PATTERN = /eyJhbGciOi[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/;
 
+function decodeBase64Url(value: string): string {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(normalized.length + (4 - normalized.length % 4) % 4, "=");
+  return atob(padded);
+}
+
 function isValidJwt(token: string): boolean {
   const parts = token.split(".");
   if (parts.length !== 3) return false;
   try {
-    const header = JSON.parse(atob(parts[0].replace(/-/g, "+").replace(/_/g, "/")));
+    const header = JSON.parse(decodeBase64Url(parts[0]));
     return typeof header.alg === "string" && typeof header.typ === "string";
   } catch {
     return false;
@@ -53,11 +60,25 @@ function extractJwt(text: string): string | null {
   return isValidJwt(match[0]) ? match[0] : null;
 }
 
+async function fetchWithTimeout(url: string, label: string, init: RequestInit = {}): Promise<Response> {
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+  } catch (err) {
+    throw new ExternalServiceError(`${label} failed.`, "Check your network connection and try again.", err);
+  }
+}
+
 async function getWebPlayerDevToken(): Promise<string> {
   if (cachedDevToken && Date.now() < cachedDevTokenExpiry) return cachedDevToken;
 
   // Fetch the Apple Music web player and extract the embedded token
-  const res = await fetch(WEBPLAYER_TOKEN_URL);
+  const res = await fetchWithTimeout(WEBPLAYER_TOKEN_URL, "Apple Music web player request");
+  if (!res.ok) {
+    throw new ExternalServiceError(`Apple Music web player error: ${res.status} ${res.statusText}`);
+  }
   const html = await res.text();
 
   // The token is embedded in the page's JS assets. Look for the JWT pattern.
@@ -77,7 +98,8 @@ async function getWebPlayerDevToken(): Promise<string> {
   const jsUrls = [...absoluteUrls, ...relativeUrls];
   for (const url of jsUrls.slice(0, 10)) {
     try {
-      const jsRes = await fetch(url);
+      const jsRes = await fetchWithTimeout(url, "Apple Music JavaScript bundle request");
+      if (!jsRes.ok) continue;
       const js = await jsRes.text();
       const jsToken = extractJwt(js);
       if (jsToken) {
@@ -104,7 +126,7 @@ async function apiRequest<T>(
   if (!mediaUserToken) {
     throw new AuthError(
       "No Apple Music media-user-token is configured.",
-      "Run `aria auth import --browser safari` or `aria auth token <token>`.",
+      "Run `cider-music auth import --browser safari` or `cider-music auth token <token>`.",
     );
   }
 
@@ -116,7 +138,7 @@ async function apiRequest<T>(
     }
   }
 
-  const res = await fetch(url.toString(), {
+  const res = await fetchWithTimeout(url.toString(), "Apple Music API request", {
     headers: {
       "Authorization": `Bearer ${devToken}`,
       "Media-User-Token": mediaUserToken,
@@ -130,13 +152,17 @@ async function apiRequest<T>(
     if (res.status === 401 || res.status === 403) {
       throw new AuthError(
         "Apple Music authentication failed. The media-user-token may be expired.",
-        "Re-import it with `aria auth import --browser safari`.",
+        "Re-import it with `cider-music auth import --browser safari`.",
       );
     }
     throw new ExternalServiceError(`Apple Music API error: ${res.status} ${res.statusText}`);
   }
 
-  return res.json() as Promise<T>;
+  try {
+    return await res.json() as T;
+  } catch (err) {
+    throw new ExternalServiceError("Apple Music API returned invalid JSON.", undefined, err);
+  }
 }
 
 // ── Response types for Apple Music API ──
@@ -187,6 +213,20 @@ function extractIds(r: AMResource): { catalogId?: string; libraryId?: string } {
     || (r.type === "songs" || r.type === "albums" || r.type === "artists" || r.type === "playlists" ? r.id : undefined);
   const libraryId = r.type.startsWith("library-") ? r.id : undefined;
   return { catalogId: catalogId || undefined, libraryId };
+}
+
+function resolveApiLibraryId(id: string, label: string): string {
+  const ref = parseEntityRef(id);
+  if (ref) {
+    if (ref.source !== "api" || ref.kind !== "library") {
+      throw new UnsupportedOperationError(
+        `${label} ${id} is not an Apple Music library ID`,
+        `Use \`cider-music --engine api ... --json\` and pass the ${label.toLowerCase()}'s \`libraryId\` field.`,
+      );
+    }
+    return validateRawId(ref.value, label);
+  }
+  return validateRawId(id, label);
 }
 
 function parseYear(releaseDate: unknown): number | undefined {
@@ -292,23 +332,23 @@ export class ApiEngine implements MusicEngine {
   // Playback must go through Music.app (native engine).
 
   async play(_query?: string): Promise<void> {
-    throw new UnsupportedOperationError("Playback control requires the native engine.", "Use `aria --engine native play`.");
+    throw new UnsupportedOperationError("Playback control requires the native engine.", "Use `cider-music --engine native play`.");
   }
 
   async pause(): Promise<void> {
-    throw new UnsupportedOperationError("Playback control requires the native engine.", "Use `aria --engine native pause`.");
+    throw new UnsupportedOperationError("Playback control requires the native engine.", "Use `cider-music --engine native pause`.");
   }
 
   async resume(): Promise<void> {
-    throw new UnsupportedOperationError("Playback control requires the native engine.", "Use `aria --engine native resume`.");
+    throw new UnsupportedOperationError("Playback control requires the native engine.", "Use `cider-music --engine native resume`.");
   }
 
   async next(): Promise<void> {
-    throw new UnsupportedOperationError("Playback control requires the native engine.", "Use `aria --engine native next`.");
+    throw new UnsupportedOperationError("Playback control requires the native engine.", "Use `cider-music --engine native next`.");
   }
 
   async previous(): Promise<void> {
-    throw new UnsupportedOperationError("Playback control requires the native engine.", "Use `aria --engine native prev`.");
+    throw new UnsupportedOperationError("Playback control requires the native engine.", "Use `cider-music --engine native prev`.");
   }
 
   async seek(_seconds: number): Promise<void> {
@@ -398,19 +438,20 @@ export class ApiEngine implements MusicEngine {
   }
 
   async getPlaylistTracks(playlistId: string): Promise<Track[]> {
-    const playlistRef = parseEntityRef(playlistId);
-    const apiPlaylistId = playlistRef?.kind === "library" ? playlistRef.value : playlistId;
-    const data = await apiRequest<AMResponse>(`/me/library/playlists/${apiPlaylistId}/tracks`, {
+    const apiPlaylistId = resolveApiLibraryId(playlistId, "Playlist");
+    const data = await apiRequest<AMResponse>(`/me/library/playlists/${encodeURIComponent(apiPlaylistId)}/tracks`, {
       limit: "100",
     });
     return (data.data || []).map(parseApiTrack);
   }
 
   async getPlaylistInfo(playlistId: string): Promise<PlaylistDetails> {
-    const playlistRef = parseEntityRef(playlistId);
-    const apiPlaylistId = playlistRef?.kind === "library" ? playlistRef.value : playlistId;
-    const data = await apiRequest<AMResponse>(`/me/library/playlists/${apiPlaylistId}`, {});
+    const apiPlaylistId = resolveApiLibraryId(playlistId, "Playlist");
+    const data = await apiRequest<AMResponse>(`/me/library/playlists/${encodeURIComponent(apiPlaylistId)}`, {});
     const playlist = data.data?.[0];
+    if (!playlist) {
+      throw new ExternalServiceError(`Apple Music playlist not found: ${apiPlaylistId}`);
+    }
     const a = recordOrEmpty(playlist?.attributes);
     const tracks = await this.getPlaylistTracks(apiPlaylistId);
     const playParams = recordOrEmpty(a.playParams);

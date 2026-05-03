@@ -1,25 +1,25 @@
 import { describe, expect, test } from "bun:test";
 import {
-  AriaError,
+  CiderError,
   AuthError,
   ValidationError,
   ExternalServiceError,
   UnsupportedOperationError,
-  isAriaError,
+  isCiderError,
 } from "../src/lib/errors";
 
 describe("error hierarchy", () => {
-  test("all error types are AriaError instances", () => {
-    expect(isAriaError(new ValidationError("bad input"))).toBe(true);
-    expect(isAriaError(new AuthError("no token"))).toBe(true);
-    expect(isAriaError(new ExternalServiceError("JXA failed"))).toBe(true);
-    expect(isAriaError(new UnsupportedOperationError("not supported"))).toBe(true);
+  test("all error types are CiderError instances", () => {
+    expect(isCiderError(new ValidationError("bad input"))).toBe(true);
+    expect(isCiderError(new AuthError("no token"))).toBe(true);
+    expect(isCiderError(new ExternalServiceError("JXA failed"))).toBe(true);
+    expect(isCiderError(new UnsupportedOperationError("not supported"))).toBe(true);
   });
 
-  test("plain errors are not AriaError", () => {
-    expect(isAriaError(new Error("plain"))).toBe(false);
-    expect(isAriaError("string")).toBe(false);
-    expect(isAriaError(null)).toBe(false);
+  test("plain errors are not CiderError", () => {
+    expect(isCiderError(new Error("plain"))).toBe(false);
+    expect(isCiderError("string")).toBe(false);
+    expect(isCiderError(null)).toBe(false);
   });
 
   test("error codes are correct", () => {
@@ -30,8 +30,8 @@ describe("error hierarchy", () => {
   });
 
   test("hints are preserved", () => {
-    const err = new AuthError("Token expired", "Run aria auth import");
-    expect(err.hint).toBe("Run aria auth import");
+    const err = new AuthError("Token expired", "Run cider-music auth import");
+    expect(err.hint).toBe("Run cider-music auth import");
     expect(err.message).toBe("Token expired");
   });
 

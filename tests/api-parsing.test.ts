@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 // We can't import the private parse functions directly, so we test the
 // exported helpers they depend on and verify the contract via the entity system.
 import { buildIdentity } from "../src/lib/entities";
+import { ApiEngine } from "../src/engines/api";
+import { UnsupportedOperationError, ValidationError } from "../src/lib/errors";
 
 describe("API response field extraction contract", () => {
   test("buildIdentity prefers libraryId for API library entities", () => {
@@ -38,5 +40,17 @@ describe("API response field extraction contract", () => {
     });
     expect(identity.id).toBe("native:derived:album:OK Computer::Radiohead");
     expect(identity.source).toBe("native");
+  });
+});
+
+describe("API playlist ID validation", () => {
+  test("rejects native playlist refs before making network requests", async () => {
+    const engine = new ApiEngine();
+    await expect(engine.getPlaylistTracks("native:persistent:ABC123")).rejects.toBeInstanceOf(UnsupportedOperationError);
+  });
+
+  test("rejects unsafe raw playlist IDs before making network requests", async () => {
+    const engine = new ApiEngine();
+    await expect(engine.getPlaylistTracks("abc/../def")).rejects.toBeInstanceOf(ValidationError);
   });
 });

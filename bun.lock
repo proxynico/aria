@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "crisp-music",
+      "name": "cider-music",
       "dependencies": {
         "commander": "^13.1.0",
       },

@@ -109,7 +109,7 @@ function resolvePersistentId(id: string, entityLabel: string): string {
     if (ref.source !== "native" || ref.kind !== "persistent") {
       throw new UnsupportedOperationError(
         `${entityLabel} ${id} is not a native persistent ID`,
-        `Use \`aria --engine native ... --json\` and pass the ${entityLabel.toLowerCase()}'s \`persistentId\` field for native-only commands.`,
+        `Use \`cider-music --engine native ... --json\` and pass the ${entityLabel.toLowerCase()}'s \`persistentId\` field for native-only commands.`,
       );
     }
     return validateRawId(ref.value, entityLabel);
@@ -321,7 +321,7 @@ export class NativeEngine implements MusicEngine {
     const persistentId = resolvePersistentId(trackId, "Track");
     throw new UnsupportedOperationError(
       `Queue management for track ${persistentId} is not implemented reliably for Music.app.`,
-      "The previous implementation interrupted playback. Use `aria play <query>` for now instead of `queue add`.",
+      "The previous implementation interrupted playback. Use `cider-music play <query>` for now instead of `queue add`.",
     );
   }
 
@@ -366,7 +366,7 @@ export class NativeEngine implements MusicEngine {
     let artworkPath: string | undefined;
     if (info.hasArtwork) {
       try {
-        const tmpPath = `/tmp/aria-artwork-${persistentId}.png`;
+        const tmpPath = `/tmp/cider-music-artwork-${persistentId}.png`;
         await jxa(`
           const music = Application("Music");
           const p = music.playlists.whose({ persistentID: ${JSON.stringify(persistentId)} })[0];

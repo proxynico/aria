@@ -1,4 +1,4 @@
-# Aria
+# Cider Music
 
 Apple Music CLI for power users and AI agents.
 
@@ -19,8 +19,8 @@ The native engine works out of the box on macOS -- no API keys, no rate limits, 
 ## Install
 
 ```bash
-git clone https://github.com/proxynico/aria.git
-cd aria
+git clone https://github.com/proxynico/cider-music.git
+cd cider-music
 bun install
 bun link
 ```
@@ -29,43 +29,43 @@ bun link
 
 ```bash
 bun run build
-# Creates ./dist/aria
+# Creates ./dist/cider-music
 ```
 
 ## Quick Start
 
 ```bash
 # Check what's playing
-aria status
+cider-music status
 
 # Play / pause / skip
-aria play
-aria pause
-aria next
-aria prev
+cider-music play
+cider-music pause
+cider-music next
+cider-music prev
 
 # Search your library (or full catalog with API auth)
-aria search track "radiohead"
-aria search album "ok computer"
-aria search artist "beatles"
+cider-music search track "radiohead"
+cider-music search album "ok computer"
+cider-music search artist "beatles"
 
 # Volume
-aria volume        # get current
-aria volume 60     # set to 60
+cider-music volume        # get current
+cider-music volume 60     # set to 60
 
 # Shuffle and repeat
-aria shuffle on
-aria repeat all
+cider-music shuffle on
+cider-music repeat all
 
 # Playlists
-aria library playlists
-aria library playlist <id>
-aria playlist info <id>
+cider-music library playlists
+cider-music library playlist <id>
+cider-music playlist info <id>
 
 # Defaults
-aria config status
-aria config engine auto
-aria config storefront auto
+cider-music config status
+cider-music config engine auto
+cider-music config storefront auto
 ```
 
 ## Output Modes
@@ -74,16 +74,16 @@ Every command supports three output modes:
 
 ```bash
 # Human-readable (default) -- colorized, formatted
-aria status
+cider-music status
 
 # JSON -- machine-readable, stable schema
-aria status --json
+cider-music status --json
 
 # Plain -- tab-separated, pipe-friendly
-aria status --plain
+cider-music status --plain
 ```
 
-The `--json` flag makes Aria agent-friendly. AI agents can parse structured output without scraping terminal formatting.
+The `--json` flag makes Cider Music agent-friendly. AI agents can parse structured output without scraping terminal formatting.
 
 ## Entity IDs
 
@@ -98,7 +98,7 @@ All entities (tracks, albums, artists, playlists) carry source-qualified IDs:
 
 JSON output includes `id`, `source`, and explicit `persistentId`, `libraryId`, `catalogId` fields when available. Native-only mutation commands (playlist add/remove) require native persistent IDs.
 
-If Aria cannot perform an operation safely, it fails explicitly rather than doing something surprising.
+If Cider Music cannot perform an operation safely, it fails explicitly rather than doing something surprising.
 
 ## Apple Music API Setup (Optional)
 
@@ -106,38 +106,38 @@ The native engine handles playback without any setup. To unlock **full catalog s
 
 ```bash
 # Auto-import from Safari (easiest)
-aria auth import --browser safari
+cider-music auth import --browser safari
 
 # Or from Chrome/Firefox/Edge/Brave
-aria auth import --browser chrome
+cider-music auth import --browser chrome
 
 # Or paste the token manually
-aria auth token <paste-here>
+cider-music auth token <paste-here>
 
 # Check status
-aria auth status
+cider-music auth status
 ```
 
-Tokens are stored in the macOS Keychain (`aria-music` service), not in config files.
+Tokens are stored in the macOS Keychain (`cider-music` service), not in config files.
 
 ## Engine Selection
 
 ```bash
 # Auto (default): native for playback, API for catalog/library when available
-aria search track "new song"
+cider-music search track "new song"
 
 # Force native: library-only search, no network
-aria --engine native search track "radiohead"
+cider-music --engine native search track "radiohead"
 
 # Force API: catalog search (requires auth)
-aria --engine api search track "new release"
+cider-music --engine api search track "new release"
 ```
 
 Persistent defaults:
 
 ```bash
-aria config engine auto
-aria config storefront auto
+cider-music config engine auto
+cider-music config storefront auto
 ```
 
 ## All Commands
@@ -178,11 +178,11 @@ Config:      config status | config engine [native|api|auto] | config storefront
 
 **API engine**: Uses the `media-user-token` from your browser (set when you log into music.apple.com) with Apple's `amp-api.music.apple.com` endpoints. The developer token is extracted from the web player's JS bundle with JWT validation and a 30-minute cache. Storefront is configurable and defaults to auto-discovery. API responses are parsed through type-safe extraction helpers.
 
-**Auto engine**: Combines both. Playback always goes through native. Search and library queries use API when authentication exists, otherwise native. If API auth exists but a request fails, the error surfaces immediately -- Aria never silently changes which engine handles a request.
+**Auto engine**: Combines both. Playback always goes through native. Search and library queries use API when authentication exists, otherwise native. If API auth exists but a request fails, the error surfaces immediately -- Cider Music never silently changes which engine handles a request.
 
 ## Error Handling
 
-Aria uses a structured error hierarchy with error codes and actionable hints:
+Cider Music uses a structured error hierarchy with error codes and actionable hints:
 
 - **ValidationError** -- invalid user input (bad integer, unknown engine, etc.)
 - **AuthError** -- missing or expired Apple Music token
@@ -196,7 +196,7 @@ All errors print to stderr with a colored message and optional hint line.
 ```bash
 bun install
 bun run typecheck               # tsc --noEmit
-bun test                        # 34 tests across 7 files
+bun test                        # 40 tests across 8 files
 bun run check                   # typecheck + test
 bun run src/index.ts status     # run without building
 ```

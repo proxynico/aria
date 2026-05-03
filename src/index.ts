@@ -14,13 +14,13 @@ import { registerConfigCommands } from "./commands/config";
 import { loadConfig } from "./lib/config";
 import { ValidationError } from "./lib/errors";
 import { setColorEnabled, outputErrorDetails } from "./lib/output";
-import type { AriaConfig, MusicEngine } from "./lib/types";
+import type { CiderConfig, MusicEngine } from "./lib/types";
 
 const VERSION = "0.1.0";
-let runtimeConfig: AriaConfig = { defaultEngine: "auto", storefront: "auto" };
+let runtimeConfig: CiderConfig = { defaultEngine: "auto", storefront: "auto" };
 
 const program = new Command()
-  .name("aria")
+  .name("cider-music")
   .description("Apple Music CLI for power users and AI agents")
   .version(VERSION)
   .option("--json", "Output as JSON")
@@ -32,6 +32,9 @@ const program = new Command()
     const opts = program.opts();
     if (opts.noColor || process.env.NO_COLOR || process.env.TERM === "dumb") {
       setColorEnabled(false);
+    }
+    if (opts.json && opts.plain) {
+      throw new ValidationError("--json and --plain cannot be used together");
     }
   });
 

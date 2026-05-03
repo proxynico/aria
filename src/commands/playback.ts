@@ -133,6 +133,10 @@ export function registerPlaybackCommands(program: Command, getEngine: () => Musi
     .action(async (value?: string) => {
       const engine = getEngine();
       const mode = getOutputMode(program.opts());
+      if (value !== undefined && value !== "on" && value !== "off") {
+        throw new ValidationError("shuffle must be one of: on, off");
+      }
+
       const current = await engine.getShuffle();
       if (value === "on" || value === "off") {
         const enabled = value === "on";

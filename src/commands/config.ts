@@ -2,9 +2,10 @@ import type { Command } from "commander";
 import { loadConfig, setDefaultEngine, setStorefront } from "../lib/config";
 import { ValidationError } from "../lib/errors";
 import { getOutputMode, outputJson, outputKeyValue, outputMessage } from "../lib/output";
-import type { AriaConfig } from "../lib/types";
+import type { CiderConfig } from "../lib/types";
 
-const ENGINES: AriaConfig["defaultEngine"][] = ["native", "api", "auto"];
+const ENGINES: CiderConfig["defaultEngine"][] = ["native", "api", "auto"];
+const STOREFRONT_PATTERN = /^[a-z]{2}$/;
 
 export function registerConfigCommands(program: Command) {
   const config = program.command("config").description("Manage runtime defaults");
@@ -41,11 +42,11 @@ export function registerConfigCommands(program: Command) {
         return;
       }
 
-      if (!ENGINES.includes(engine as AriaConfig["defaultEngine"])) {
+      if (!ENGINES.includes(engine as CiderConfig["defaultEngine"])) {
         throw new ValidationError(`engine must be one of: ${ENGINES.join(", ")}`);
       }
 
-      await setDefaultEngine(engine as AriaConfig["defaultEngine"]);
+      await setDefaultEngine(engine as CiderConfig["defaultEngine"]);
       if (mode === "json") {
         outputJson({ defaultEngine: engine });
       } else {
@@ -69,6 +70,10 @@ export function registerConfigCommands(program: Command) {
       }
 
       const normalized = storefront.toLowerCase();
+      if (normalized !== "auto" && !STOREFRONT_PATTERN.test(normalized)) {
+        throw new ValidationError("storefront must be 'auto' or a two-letter country code, e.g. us, gb, jp");
+      }
+
       await setStorefront(normalized);
       if (mode === "json") {
         outputJson({ storefront: normalized });

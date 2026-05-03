@@ -65,7 +65,7 @@ export function registerAuthCommands(program: Command) {
         } else {
           outputKeyValue("Status", "Not authenticated (API engine unavailable)");
           outputKeyValue("Note", "Native engine works without authentication");
-          outputKeyValue("Setup", "aria auth import --browser safari");
+          outputKeyValue("Setup", "cider-music auth import --browser safari");
         }
       }
     });

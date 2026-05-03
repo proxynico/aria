@@ -1,14 +1,14 @@
 {
-  "name": "aria-music",
+  "name": "cider-music",
   "version": "0.1.0",
   "description": "Apple Music CLI for power users and AI agents",
   "type": "module",
   "bin": {
-    "aria": "./src/index.ts"
+    "cider-music": "./src/index.ts"
   },
   "scripts": {
     "dev": "bun run src/index.ts",
-    "build": "bun build src/index.ts --compile --outfile dist/aria",
+    "build": "bun build src/index.ts --compile --outfile dist/cider-music",
     "link": "bun link",
     "typecheck": "bunx tsc --noEmit",
     "test": "bun test",

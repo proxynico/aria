@@ -1,6 +1,6 @@
 import { $ } from "bun";
 import { setMediaUserToken } from "./config";
-import { ExternalServiceError } from "./errors";
+import { ExternalServiceError, ValidationError } from "./errors";
 
 /**
  * Extract the media-user-token cookie from a browser's cookie store.
@@ -32,7 +32,7 @@ export async function importCookiesFromBrowser(browser: Browser): Promise<string
     case "firefox":
       return importFirefoxCookie();
     default:
-      throw new Error(`Unsupported browser: ${browser}`);
+      throw new ValidationError(`Unsupported browser: ${browser}`);
   }
 }
 
@@ -74,7 +74,7 @@ async function importSafariCookie(): Promise<string> {
       "You may need to grant Full Disk Access to Terminal in System Settings > Privacy.",
       "",
       "Alternatively, paste the token manually:",
-      "  aria auth token <paste-token-here>",
+      "  cider-music auth token <paste-token-here>",
     ].join("\n"),
   );
 }
@@ -161,7 +161,7 @@ else:
       "You may need the 'cryptography' Python package: pip3 install cryptography",
       "",
       "Alternatively, paste the token manually:",
-      "  aria auth token <paste-token-here>",
+      "  cider-music auth token <paste-token-here>",
     ].join("\n"),
   );
 }
@@ -206,7 +206,7 @@ async function importFirefoxCookie(): Promise<string> {
       "Make sure you're logged into music.apple.com in Firefox.",
       "",
       "Alternatively, paste the token manually:",
-      "  aria auth token <paste-token-here>",
+      "  cider-music auth token <paste-token-here>",
     ].join("\n"),
   );
 }
